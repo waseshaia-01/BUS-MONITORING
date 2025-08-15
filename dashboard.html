@@ -56,11 +56,33 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import {
-      getFirestore, setDoc, doc, collection, getDocs, onSnapshot, deleteDoc,
-      query, where, enableIndexedDbPersistence
-    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, setDoc, doc, collection, getDocs, onSnapshot, deleteDoc,
+    query, where, enableIndexedDbPersistence
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  
+  // 1️⃣ Firebase init
+  const firebaseConfig = { ... };
+  const app = initializeApp(firebaseConfig); 
+  const db  = getFirestore(app);
+  enableIndexedDbPersistence(db).catch(()=>{});
+  
+  // 2️⃣ Your variables
+  const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
+  const busNames = (id)=>`Bus ${id.split('-')[1]}`;
+  const grid = document.getElementById('bus-grid');
+  
+  // 3️⃣ 📤 UPLOAD ATTENDEES CODE — insert here
+  document.getElementById("import").addEventListener("click", async () => {
+    const fileInput = document.getElementById("upload");
+    const selectedBusNumber = document.getElementById("bus").value.replace("Bus ", "");
+    const selectedBusId = `bus-${selectedBusNumber}`;
+  
+    if (!fileInput.files.length) {
+      alert("Please choose a file first.");
+      return;
+    }
 
     const firebaseConfig = {
       apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
