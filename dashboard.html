@@ -146,7 +146,7 @@
       content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
       card.insertAdjacentElement('afterend', content);
 
-      await renderBusSection(id, content);
+      await renderBusSection(id.trim().toLowerCase().replace(/\s+/g, "-"), content);
       requestAnimationFrame(()=>{
         content.style.maxHeight = content.scrollHeight + "px";
       });
@@ -187,7 +187,7 @@
   document.getElementById('import').addEventListener('click', async () => {
     const file = document.getElementById('upload').files[0];
     const selectedBus = document.getElementById('bus').value;
-    const busId = selectedBus.toLowerCase().replace(" ", "-");
+    const busId = selectedBus.trim().toLowerCase().replace(/\s+/g, "-");
 
     if (!file) {
       alert("Please select a file first.");
