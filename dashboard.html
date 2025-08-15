@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Bus Scanner Dashboard</title>
+  <style>
+    body{font-family:system-ui,Arial,sans-serif;margin:16px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+    .card{border:1px solid #ccc;border-radius:12px;padding:12px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    details{border:1px solid #ddd;border-radius:12px;padding:8px;margin:10px 0}
+    summary{font-weight:600}
+    button,a.btn{padding:8px 12px;border-radius:8px;border:1px solid #999;background:#f5f5f5;text-decoration:none}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    td,th{border-bottom:1px solid #eee;padding:6px;text-align:left}
+    .note{font-size:13px;color:#555}
+  </style>
+</head>
+<body>
+  <header class="row">
+    <h1>Dashboard</h1>
+    <a class="btn" href="index.html">⬅ Back to Scanner</a>
+  </header>
+
+  <section class="row">
+    <button id="download-template">Download Template (Excel)</button>
+    <input type="file" id="upload" accept=".xlsx,.xls,.csv"/>
+    <select id="bus">
+      <option>Bus 1</option><option>Bus 2</option><option>Bus 3</option><option>Bus 4</option>
+      <option>Bus 5</option><option>Bus 6</option><option>Bus 7</option><option>Bus 8</option>
+      <option>Bus 9</option><option>Bus 10</option><option>Bus 11</option><option>Bus 12</option>
+    </select>
+    <button id="import">Upload Attendees to Selected Bus</button>
+  </section>
+
+  <p class="note">Tip: The Excel file must have columns: <b>Code</b>, <b>Name</b>.</p>
+
+  <h2>Bus Summary</h2>
+  <div id="bus-grid" class="grid"></div>
+
+  <div id="bus-sections"></div>
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, setDoc, doc, collection, getDocs, onSnapshot, deleteDoc,
+      query, where, serverTimestamp, enableIndexedDbPersistence
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // TODO: paste your config (same as index.html)
+    const firebaseConfig = { /* ... */ };
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+    enableIndexedDbPersistence(db).catch(()=>{});
+
+    const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
+    const busNames = (id)=>`Bus ${id.split('-')[1]}`;
+
+    // UI refs
+    const grid = document.getElementById('bus-grid');
+    const sections = document.getElementById('bus-sections');
+    const uploadInput = document.getElementById('upload');
+    const importBtn = document.getElementById('import');
+    const busSelect = document.getElementById('bus');
+    const dlTemplateBtn = document.getElementById('download-template');
+
+    // 1) Download template (hosted file optional)
+    dlTemplateBtn.addEventListener('click', ()=> {
+      window.location.href = "attendees_template.xlsx"; // If you upload the template to the repo root
+    });
+
+    // 2) Live summary counts
+    async function renderSummary(){
+      grid.innerHTML = "";
+      for(const id of buses){
+        const colRef = collection(db, `buses/${id}/attendees`);
+        const qSnap  = await getDocs(query(colRef, where("scanned", "==", true)));
+        const count  = qSnap.size;
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h3>${busNames(id)}</h3><p>Scanned: <b>${count}</b></p>
+          <button data-id="${id}" class="show">Open List</button>`;
+        grid.appendChild(card);
+      }
+    }
+
+    // 3) Expandable sections
+    grid.addEventListener('click', async (e)=>{
+      if(!e.target.matches('.show')) return;
+      const id = e.target.dataset.id;
+      await renderBusSection(id);
+      document.getElementById(`section-${id}`)?.scrollIntoView({behavior:'smooth'});
+    });
+
+    async function renderBusSection(id){
+      const wrapId = `section-${id}`;
+      let wrap = document.getElementById(wrapId);
+      if(!wrap){
+        wrap = document.createElement('details');
+        wrap.id = wrapId;
+        wrap.open = true;
+        sections.appendChild(wrap);
+      }
+      wrap.innerHTML = `<summary>${busNames(id)}</summary>
+        <div class="row">
+          <button data-id="${id}" class="gen-pdf">QR Code Download (A4 · 6 per page)</button>
+          <button data-id="${id}" class="del-all">Delete All</button>
+        </div>
+        <table><thead><tr><th>Code</th><th>Name</th><th>Scanned At</th><th></th></tr></thead>
+        <tbody id="tbody-${id}"></tbody></table>`;
+
+      const tbody = wrap.querySelector(`#tbody-${id}`);
+      tbody.innerHTML = "Loading...";
+
+      const colRef = collection(db, `buses/${id}/attendees`);
+      const unsub = onSnapshot(colRef, snap=>{
+        tbody.innerHTML = "";
+        snap.forEach(docu=>{
+          const d = docu.data();
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            `<td>${docu.id}</td><td>${d.name||""}</td>
+             <td>${d.scannedAt?.toDate?.()?.toLocaleString?.() || ""}</td>
+             <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>`;
+          tbody.appendChild(tr);
+        });
+        renderSummary(); // refresh counts live
+      });
+      wrap.addEventListener('toggle', ()=>{ if(!wrap.open) unsub(); });
+    }
+
+    // 4) Import attendees from Excel into selected bus
+    importBtn.addEventListener('click', async ()=>{
+      const file = uploadInput.files?.[0];
+      if(!file){ alert("Choose an Excel/CSV file first."); return; }
+
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet);
+      // Expect columns: Code, Name
+      const busName = busSelect.value; // e.g., "Bus 1"
+      const busId   = busName.toLowerCase().replace(" ","-");
+
+      const writes = [];
+      for(const r of rows){
+        const code = String(r.Code).trim();
+        const name = String(r.Name||"").trim();
+        if(!code) continue;
+        const ref = doc(db, `buses/${busId}/attendees/${code}`);
+        writes.push(setDoc(ref, { name, scanned:false, createdAt: serverTimestamp() }, { merge:true }));
+      }
+      await Promise.all(writes);
+      alert(`Uploaded ${writes.length} attendee(s) to ${busName}.`);
+      await renderSummary();
+      await renderBusSection(busId);
+    });
+
+    // 5) Delete (single / all)
+    sections.addEventListener('click', async (e)=>{
+      if(e.target.matches('.del')){
+        const id = e.target.dataset.id;
+        const code = e.target.dataset.code;
+        await deleteDoc(doc(db, `buses/${id}/attendees/${code}`));
+      }
+      if(e.target.matches('.del-all')){
+        const id = e.target.dataset.id;
+        if(!confirm("Delete ALL attendees in this bus?")) return;
+        const colRef = collection(db, `buses/${id}/attendees`);
+        const snap = await getDocs(colRef);
+        const deletions = [];
+        snap.forEach(d=>deletions.push(deleteDoc(d.ref)));
+        await Promise.all(deletions);
+        await renderSummary();
+      }
+      if(e.target.matches('.gen-pdf')){
+        generatePassPDF(e.target.dataset.id);
+      }
+    });
+
+    // 6) Generate A4 PDF (6 passes per page, card 5cm x 10cm, QR 4.5cm)
+    async function generatePassPDF(busId){
+      const { jsPDF } = window.jspdf;
+      const docPDF = new jsPDF({ unit: "mm", format: "a4" }); // 210 x 297 mm
+
+      // Fetch attendees
+      const colRef = collection(db, `buses/${busId}/attendees`);
+      const snap = await getDocs(colRef);
+      const data = [];
+      snap.forEach(d=>data.push({ code: d.id, ...d.data() }));
+
+      // Positions: 2 columns x 3 rows
+      const cardW = 50;   // 5 cm
+      const cardH = 100;  // 10 cm
+      const qr    = 45;   // 4.5 cm
+      const marginX = 15; // side margin
+      const marginY = 10; // top margin
+      const gapX = 20;    // space between columns
+      const gapY = 10;
+
+      let i = 0;
+      for(const row of data){
+        const pageIndex = Math.floor(i / 6);
+        if(i>0 && i % 6 === 0){ docPDF.addPage(); }
+
+        const slot = i % 6; // 0..5
+        const col = slot % 2; // 0 or 1
+        const r   = Math.floor(slot / 2); // 0..2
+
+        const x = marginX + col*(cardW + gapX);
+        const y = marginY + r*(cardH + gapY);
+
+        // Card border
+        docPDF.rect(x, y, cardW, cardH);
+
+        // Header: TSUNETETSU CEBU INC. (approx Calisto MT -> use Times)
+        docPDF.setFont("times","bold"); docPDF.setFontSize(10);
+        docPDF.text("TSUNETETSU CEBU INC.", x+2, y+6);
+
+        // QR (centered horizontally)
+        const qrPng = await makeQrPng(row.code);
+        docPDF.addImage(qrPng, "PNG", x + (cardW-qr)/2, y+10, qr, qr);
+
+        // Passenger name (Aptos Black approx -> use Helvetica Bold)
+        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(10);
+        docPDF.text((row.name||"").toUpperCase(), x+2, y+10+qr+8);
+
+        // Event section
+        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+        docPDF.text("EVENT", x+2, y+10+qr+18);
+        docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
+        docPDF.text("TCI Family Day 2025", x+2, y+10+qr+24);
+        docPDF.text("September 7, 2025 | 8:00 AM – 4:00 PM", x+2, y+10+qr+30);
+
+        // Venue section
+        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+        docPDF.text("VENUE", x+2, y+10+qr+40);
+        docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
+        docPDF.text("Hidden Valley Mountain and Wavepool Resort", x+2, y+10+qr+46, { maxWidth: cardW-4 });
+        docPDF.text("Pinamungahan, Cebu", x+2, y+10+qr+52);
+
+        // Footer: EVENT PASS + Bus name
+        const busLabel = busNames(busId);
+        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+        docPDF.text("EVENT PASS", x+2, y+cardH-10);
+        docPDF.text(`B (${busLabel})`, x+cardW-2, y+cardH-10, { align: "right" });
+
+        i++;
+      }
+
+      docPDF.save(`${busNames(busId).replace(" ","_")}_Event_Passes.pdf`);
+    }
+
+    // Helper: make QR (256x256, EC Level H), return PNG dataURL
+    function makeQrPng(text){
+      return new Promise((resolve)=>{
+        const typeNumber = 8; // auto size
+        const qr = qrcode(typeNumber, 'H'); // High error correction
+        qr.addData(String(text));
+        qr.make();
+        const size = 256;
+        const cell = Math.floor(size / qr.getModuleCount());
+        const margin = 0;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle="#fff"; ctx.fillRect(0,0,size,size);
+        ctx.fillStyle="#000";
+        const count = qr.getModuleCount();
+        for(let r=0;r<count;r++){
+          for(let c=0;c<count;c++){
+            if(qr.isDark(r,c)){
+              ctx.fillRect(c*cell+margin, r*cell+margin, cell, cell);
+            }
+          }
+        }
+        resolve(canvas.toDataURL("image/png"));
+      });
+    }
+
+    // Initial render
+    renderSummary();
+  </script>
+</body>
+</html>
