@@ -55,7 +55,6 @@
       query, where, serverTimestamp, enableIndexedDbPersistence
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // TODO: paste your config (same as index.html)
     const firebaseConfig = {
       apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
       authDomain: "bus-scanner-50fe9.firebaseapp.com",
@@ -72,7 +71,6 @@
     const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
     const busNames = (id)=>`Bus ${id.split('-')[1]}`;
 
-    // UI refs
     const grid = document.getElementById('bus-grid');
     const sections = document.getElementById('bus-sections');
     const uploadInput = document.getElementById('upload');
@@ -80,24 +78,21 @@
     const busSelect = document.getElementById('bus');
     const dlTemplateBtn = document.getElementById('download-template');
 
-    // 1) Download template (generated in browser)
-  dlTemplateBtn.addEventListener('click', () => {
-    const wb = XLSX.utils.book_new();
-    const wsData = [
-      ["Code", "Name"],
-      ["TCI001", "Alice Reyes"],
-      ["TCI002", "Ben Cruz"],
-      ["TCI003", "Cara Dela Cruz"]
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    dlTemplateBtn.addEventListener('click', () => {
+      const wb = XLSX.utils.book_new();
+      const wsData = [
+        ["Code", "Name"],
+        ["TCI001", "Alice Reyes"],
+        ["TCI002", "Ben Cruz"],
+        ["TCI003", "Cara Dela Cruz"]
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, "Template");
+      XLSX.writeFile(wb, "attendees_template.xlsx");
+    });
 
-    XLSX.writeFile(wb, "attendees_template.xlsx");
-  });
-
-    // 2) Live summary counts
     async function renderSummary(){
-      grid.innerHTML = "";
+      grid.innerHTML = ""; // ✅ clear old cards
       for(const id of buses){
         const colRef = collection(db, `buses/${id}/attendees`);
         const qSnap  = await getDocs(query(colRef, where("scanned", "==", true)));
@@ -110,7 +105,6 @@
       }
     }
 
-    // 3) Expandable sections
     grid.addEventListener('click', async (e)=>{
       if(!e.target.matches('.show')) return;
       const id = e.target.dataset.id;
@@ -150,53 +144,45 @@
              <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>`;
           tbody.appendChild(tr);
         });
-        renderSummary(); // refresh counts live
+        renderSummary(); // ✅ live refresh without duplicates
       });
       wrap.addEventListener('toggle', ()=>{ if(!wrap.open) unsub(); });
     }
 
-    // 4) Import attendees from Excel into selected bus (improved with validation & error handling)
     importBtn.addEventListener('click', async () => {
       const file = uploadInput.files?.[0];
       if (!file) {
         alert("Please select an Excel/CSV file first.");
         return;
       }
-    
       try {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // raw array format
-    
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
         if (rows.length < 2) {
           alert("The file is empty or missing data.");
           return;
         }
-    
-        // Validate headers
         const [header1, header2] = rows[0].map(h => (h || "").trim());
         if (header1 !== "Code" || header2 !== "Name") {
           alert('The first row must contain headers: "Code" and "Name" (case-sensitive).');
           return;
         }
-    
-        const busName = busSelect.value; // e.g., "Bus 1"
+        const busName = busSelect.value;
         const busId = busName.toLowerCase().replace(/\s+/g, "-");
-    
         let uploadedCount = 0;
         let skippedRows = [];
-    
+
         for (let i = 1; i < rows.length; i++) {
           const [codeRaw, nameRaw] = rows[i];
           const code = String(codeRaw || "").trim();
           const name = String(nameRaw || "").trim();
-    
           if (!code) {
             skippedRows.push(`Row ${i + 1}: Missing Code`);
             continue;
           }
-    
           try {
             const ref = doc(db, `buses/${busId}/attendees/${code}`);
             await setDoc(ref, {
@@ -209,23 +195,18 @@
             skippedRows.push(`Row ${i + 1}: Firestore error - ${err.message}`);
           }
         }
-    
         let message = `✅ Uploaded ${uploadedCount} attendee(s) to ${busName}.`;
         if (skippedRows.length) {
           message += `\n⚠ Skipped ${skippedRows.length} row(s):\n- ${skippedRows.join("\n- ")}`;
         }
-    
         alert(message);
         await renderSummary();
         await renderBusSection(busId);
-    
       } catch (err) {
         alert("❌ Error reading the file: " + err.message);
       }
     });
 
-
-    // 5) Delete (single / all)
     sections.addEventListener('click', async (e)=>{
       if(e.target.matches('.del')){
         const id = e.target.dataset.id;
@@ -247,84 +228,60 @@
       }
     });
 
-    // 6) Generate A4 PDF (6 passes per page, card 5cm x 10cm, QR 4.5cm)
     async function generatePassPDF(busId){
       const { jsPDF } = window.jspdf;
-      const docPDF = new jsPDF({ unit: "mm", format: "a4" }); // 210 x 297 mm
-
-      // Fetch attendees
+      const docPDF = new jsPDF({ unit: "mm", format: "a4" });
       const colRef = collection(db, `buses/${busId}/attendees`);
       const snap = await getDocs(colRef);
       const data = [];
       snap.forEach(d=>data.push({ code: d.id, ...d.data() }));
 
-      // Positions: 2 columns x 3 rows
-      const cardW = 50;   // 5 cm
-      const cardH = 100;  // 10 cm
-      const qr    = 45;   // 4.5 cm
-      const marginX = 15; // side margin
-      const marginY = 10; // top margin
-      const gapX = 20;    // space between columns
+      const cardW = 50;   
+      const cardH = 100;  
+      const qr    = 45;   
+      const marginX = 15; 
+      const marginY = 10; 
+      const gapX = 20;    
       const gapY = 10;
 
       let i = 0;
       for(const row of data){
-        const pageIndex = Math.floor(i / 6);
         if(i>0 && i % 6 === 0){ docPDF.addPage(); }
-
-        const slot = i % 6; // 0..5
-        const col = slot % 2; // 0 or 1
-        const r   = Math.floor(slot / 2); // 0..2
-
+        const slot = i % 6; 
+        const col = slot % 2;
+        const r   = Math.floor(slot / 2);
         const x = marginX + col*(cardW + gapX);
         const y = marginY + r*(cardH + gapY);
-
-        // Card border
         docPDF.rect(x, y, cardW, cardH);
-
-        // Header: TSUNETETSU CEBU INC. (approx Calisto MT -> use Times)
         docPDF.setFont("times","bold"); docPDF.setFontSize(10);
         docPDF.text("TSUNETETSU CEBU INC.", x+2, y+6);
-
-        // QR (centered horizontally)
         const qrPng = await makeQrPng(row.code);
         docPDF.addImage(qrPng, "PNG", x + (cardW-qr)/2, y+10, qr, qr);
-
-        // Passenger name (Aptos Black approx -> use Helvetica Bold)
         docPDF.setFont("helvetica","bold"); docPDF.setFontSize(10);
         docPDF.text((row.name||"").toUpperCase(), x+2, y+10+qr+8);
-
-        // Event section
         docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
         docPDF.text("EVENT", x+2, y+10+qr+18);
         docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
         docPDF.text("TCI Family Day 2025", x+2, y+10+qr+24);
         docPDF.text("September 7, 2025 | 8:00 AM – 4:00 PM", x+2, y+10+qr+30);
-
-        // Venue section
         docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
         docPDF.text("VENUE", x+2, y+10+qr+40);
         docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
         docPDF.text("Hidden Valley Mountain and Wavepool Resort", x+2, y+10+qr+46, { maxWidth: cardW-4 });
         docPDF.text("Pinamungahan, Cebu", x+2, y+10+qr+52);
-
-        // Footer: EVENT PASS + Bus name
         const busLabel = busNames(busId);
         docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
         docPDF.text("EVENT PASS", x+2, y+cardH-10);
         docPDF.text(`B (${busLabel})`, x+cardW-2, y+cardH-10, { align: "right" });
-
         i++;
       }
-
       docPDF.save(`${busNames(busId).replace(" ","_")}_Event_Passes.pdf`);
     }
 
-    // Helper: make QR (256x256, EC Level H), return PNG dataURL
     function makeQrPng(text){
       return new Promise((resolve)=>{
-        const typeNumber = 8; // auto size
-        const qr = qrcode(typeNumber, 'H'); // High error correction
+        const typeNumber = 8;
+        const qr = qrcode(typeNumber, 'H');
         qr.addData(String(text));
         qr.make();
         const size = 256;
@@ -347,7 +304,6 @@
       });
     }
 
-    // Initial render
     renderSummary();
   </script>
 </body>
