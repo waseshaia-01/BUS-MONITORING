@@ -56,8 +56,14 @@
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     // TODO: paste your config (same as index.html)
-    const firebaseConfig = { /* ... */ };
-    const app = initializeApp(firebaseConfig);
+    const firebaseConfig = {
+      apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
+      authDomain: "bus-scanner-50fe9.firebaseapp.com",
+      projectId: "bus-scanner-50fe9",
+      storageBucket: "bus-scanner-50fe9.firebasestorage.app",
+      messagingSenderId: "552524740644",
+      appId: "1:552524740644:web:3cdb346ae7d9b2850d80b1"
+    };
     const db  = getFirestore(app);
     enableIndexedDbPersistence(db).catch(()=>{});
 
