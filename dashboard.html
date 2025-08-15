@@ -182,7 +182,7 @@
         }
     
         const busName = busSelect.value; // e.g., "Bus 1"
-        const busId = busName.toLowerCase().replace(" ", "-");
+        const busId = busName.toLowerCase().replace(/\s+/g, "-");
     
         let uploadedCount = 0;
         let skippedRows = [];
