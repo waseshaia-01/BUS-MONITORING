@@ -74,6 +74,8 @@
   const app = initializeApp(firebaseConfig); 
   const db  = getFirestore(app);
   enableIndexedDbPersistence(db).catch(()=>{});
+
+  let expandedBusId = null;
   
   // Variables
   const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
@@ -140,6 +142,7 @@
     });
 
     if(!isActive){
+      expandedBusId = id; // remember expanded bus
       card.classList.add('active');
       const content = document.createElement('div');
       content.className = 'accordion-content';
@@ -150,6 +153,8 @@
       requestAnimationFrame(()=>{
         content.style.maxHeight = content.scrollHeight + "px";
       });
+    } else {
+      expandedBusId = null;
     }
   });
 
@@ -210,6 +215,15 @@
 
     alert(`Attendees uploaded successfully to ${selectedBus}`);
     await renderSummary();
+
+    // 🔹 If the bus is currently expanded, refresh its table
+    if (expandedBusId === busId) {
+      const accordion = document.querySelector(`#tbody-${busId}`)?.closest(".accordion-content");
+      if (accordion) {
+        await renderBusSection(busId, accordion);
+        accordion.style.maxHeight = accordion.scrollHeight + "px";
+      }
+    }
   });
 
   // QR generator
