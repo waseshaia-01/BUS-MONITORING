@@ -11,9 +11,14 @@
     .card.active{background:#e8f0ff;border-color:#0b5cff}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .accordion-content{
+      grid-column: 1 / -1;
       overflow:hidden;
       max-height:0;
       transition:max-height 0.6s ease;
+      background: #fafafa;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 0 8px;
     }
     table{width:100%;border-collapse:collapse;margin-top:8px}
     td,th{border-bottom:1px solid #eee;padding:6px;text-align:left}
@@ -43,8 +48,6 @@
   <h2>Bus Summary</h2>
   <div id="bus-grid" class="grid"></div>
 
-  <div id="bus-sections"></div>
-
   <!-- Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -56,7 +59,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
       getFirestore, setDoc, doc, collection, getDocs, onSnapshot, deleteDoc,
-      query, where, serverTimestamp, enableIndexedDbPersistence
+      query, where, enableIndexedDbPersistence
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -74,11 +77,9 @@
     const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
     const busNames = (id)=>`Bus ${id.split('-')[1]}`;
     const grid = document.getElementById('bus-grid');
-    const sections = document.getElementById('bus-sections');
 
     async function renderSummary(){
       grid.innerHTML = "";
-      sections.innerHTML = "";
       for(const id of buses){
         const colRef = collection(db, `buses/${id}/attendees`);
         const qSnap  = await getDocs(query(colRef, where("scanned", "==", true)));
@@ -88,20 +89,12 @@
         card.className = 'card';
         card.dataset.id = id;
         card.innerHTML = `<h3>${busNames(id)}</h3><p>Scanned: <b>${count}</b></p>`;
-        
-        const content = document.createElement('div');
-        content.className = 'accordion-content';
-        content.id = `section-${id}`;
-        content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
-
         grid.appendChild(card);
-        sections.appendChild(content);
       }
     }
 
-    async function renderBusSection(id){
-      const content = document.getElementById(`section-${id}`);
-      content.innerHTML = `
+    async function renderBusSection(id, container){
+      container.innerHTML = `
         <div class="row" style="padding:8px 0;">
           <button data-id="${id}" class="gen-pdf">QR Code Download (A4 · 6 per page)</button>
           <button data-id="${id}" class="del-all">Delete All</button>
@@ -111,18 +104,19 @@
           <tbody id="tbody-${id}"></tbody>
         </table>
       `;
-
-      const tbody = content.querySelector(`#tbody-${id}`);
+      const tbody = container.querySelector(`#tbody-${id}`);
       const colRef = collection(db, `buses/${id}/attendees`);
       onSnapshot(colRef, snap=>{
         tbody.innerHTML = "";
         snap.forEach(docu=>{
           const d = docu.data();
           const tr = document.createElement('tr');
-          tr.innerHTML =
-            `<td>${docu.id}</td><td>${d.name||""}</td>
-             <td>${d.scannedAt?.toDate?.()?.toLocaleString?.() || ""}</td>
-             <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>`;
+          tr.innerHTML = `
+            <td>${docu.id}</td>
+            <td>${d.name||""}</td>
+            <td>${d.scannedAt?.toDate?.()?.toLocaleString?.() || ""}</td>
+            <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>
+          `;
           tbody.appendChild(tr);
         });
       });
@@ -132,22 +126,31 @@
     grid.addEventListener('click', async (e)=>{
       const card = e.target.closest('.card');
       if(!card) return;
-
       const id = card.dataset.id;
       const isActive = card.classList.contains('active');
 
       document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
-      document.querySelectorAll('.accordion-content').forEach(sec=>sec.style.maxHeight = null);
+      document.querySelectorAll('.accordion-content').forEach(sec=>{
+        sec.style.maxHeight = null;
+        sec.addEventListener('transitionend',()=>sec.remove(),{once:true});
+      });
 
       if(!isActive){
         card.classList.add('active');
-        await renderBusSection(id);
-        const section = document.getElementById(`section-${id}`);
-        section.style.maxHeight = section.scrollHeight + "px";
+        const content = document.createElement('div');
+        content.className = 'accordion-content';
+        content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
+        card.insertAdjacentElement('afterend', content);
+
+        await renderBusSection(id, content);
+        requestAnimationFrame(()=>{
+          content.style.maxHeight = content.scrollHeight + "px";
+        });
       }
     });
 
-    sections.addEventListener('click', async (e)=>{
+    // Section buttons
+    grid.addEventListener('click', async (e)=>{
       if(e.target.matches('.del')){
         const id = e.target.dataset.id;
         const code = e.target.dataset.code;
@@ -202,7 +205,6 @@
       snap.forEach(d=>data.push({ code: d.id, ...d.data() }));
 
       const cardW = 50, cardH = 100, qr = 45, marginX = 15, marginY = 10, gapX = 20, gapY = 10;
-
       let i = 0;
       for(const row of data){
         if(i>0 && i % 6 === 0) docPDF.addPage();
