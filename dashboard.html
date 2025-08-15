@@ -155,32 +155,75 @@
       wrap.addEventListener('toggle', ()=>{ if(!wrap.open) unsub(); });
     }
 
-    // 4) Import attendees from Excel into selected bus
-    importBtn.addEventListener('click', async ()=>{
+    // 4) Import attendees from Excel into selected bus (improved with validation & error handling)
+    importBtn.addEventListener('click', async () => {
       const file = uploadInput.files?.[0];
-      if(!file){ alert("Choose an Excel/CSV file first."); return; }
-
-      const buf = await file.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet);
-      // Expect columns: Code, Name
-      const busName = busSelect.value; // e.g., "Bus 1"
-      const busId   = busName.toLowerCase().replace(" ","-");
-
-      const writes = [];
-      for(const r of rows){
-        const code = String(r.Code).trim();
-        const name = String(r.Name||"").trim();
-        if(!code) continue;
-        const ref = doc(db, `buses/${busId}/attendees/${code}`);
-        writes.push(setDoc(ref, { name, scanned:false, createdAt: serverTimestamp() }, { merge:true }));
+      if (!file) {
+        alert("Please select an Excel/CSV file first.");
+        return;
       }
-      await Promise.all(writes);
-      alert(`Uploaded ${writes.length} attendee(s) to ${busName}.`);
-      await renderSummary();
-      await renderBusSection(busId);
+    
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }); // raw array format
+    
+        if (rows.length < 2) {
+          alert("The file is empty or missing data.");
+          return;
+        }
+    
+        // Validate headers
+        const [header1, header2] = rows[0].map(h => (h || "").trim());
+        if (header1 !== "Code" || header2 !== "Name") {
+          alert('The first row must contain headers: "Code" and "Name" (case-sensitive).');
+          return;
+        }
+    
+        const busName = busSelect.value; // e.g., "Bus 1"
+        const busId = busName.toLowerCase().replace(" ", "-");
+    
+        let uploadedCount = 0;
+        let skippedRows = [];
+    
+        for (let i = 1; i < rows.length; i++) {
+          const [codeRaw, nameRaw] = rows[i];
+          const code = String(codeRaw || "").trim();
+          const name = String(nameRaw || "").trim();
+    
+          if (!code) {
+            skippedRows.push(`Row ${i + 1}: Missing Code`);
+            continue;
+          }
+    
+          try {
+            const ref = doc(db, `buses/${busId}/attendees/${code}`);
+            await setDoc(ref, {
+              name,
+              scanned: false,
+              createdAt: serverTimestamp()
+            }, { merge: true });
+            uploadedCount++;
+          } catch (err) {
+            skippedRows.push(`Row ${i + 1}: Firestore error - ${err.message}`);
+          }
+        }
+    
+        let message = `✅ Uploaded ${uploadedCount} attendee(s) to ${busName}.`;
+        if (skippedRows.length) {
+          message += `\n⚠ Skipped ${skippedRows.length} row(s):\n- ${skippedRows.join("\n- ")}`;
+        }
+    
+        alert(message);
+        await renderSummary();
+        await renderBusSection(busId);
+    
+      } catch (err) {
+        alert("❌ Error reading the file: " + err.message);
+      }
     });
+
 
     // 5) Delete (single / all)
     sections.addEventListener('click', async (e)=>{
