@@ -63,234 +63,226 @@
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   
   // 1️⃣ Firebase init
-  const firebaseConfig = { ... };
+  const firebaseConfig = {
+    apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
+    authDomain: "bus-scanner-50fe9.firebaseapp.com",
+    projectId: "bus-scanner-50fe9",
+    storageBucket: "bus-scanner-50fe9.firebasestorage.app",
+    messagingSenderId: "552524740644",
+    appId: "1:552524740644:web:3cdb346ae7d9b2850d80b1"
+  };
   const app = initializeApp(firebaseConfig); 
   const db  = getFirestore(app);
   enableIndexedDbPersistence(db).catch(()=>{});
   
-  // 2️⃣ Your variables
+  // Variables
   const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
   const busNames = (id)=>`Bus ${id.split('-')[1]}`;
   const grid = document.getElementById('bus-grid');
-  
-  // 3️⃣ 📤 UPLOAD ATTENDEES CODE — insert here
-  document.getElementById("import").addEventListener("click", async () => {
-    const fileInput = document.getElementById("upload");
-    const selectedBusNumber = document.getElementById("bus").value.replace("Bus ", "");
-    const selectedBusId = `bus-${selectedBusNumber}`;
-  
-    if (!fileInput.files.length) {
-      alert("Please choose a file first.");
+
+  // Render summary
+  async function renderSummary(){
+    grid.innerHTML = "";
+    for(const id of buses){
+      const colRef = collection(db, `buses/${id}/attendees`);
+      const qSnap  = await getDocs(query(colRef, where("scanned", "==", true)));
+      const count  = qSnap.size;
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.id = id;
+      card.innerHTML = `<h3>${busNames(id)}</h3><p>Scanned: <b>${count}</b></p>`;
+      grid.appendChild(card);
+    }
+  }
+
+  // Render expanded bus section
+  async function renderBusSection(id, container){
+    container.innerHTML = `
+      <div class="row" style="padding:8px 0;">
+        <button data-id="${id}" class="gen-pdf">QR Code Download (A4 · 6 per page)</button>
+        <button data-id="${id}" class="del-all">Delete All</button>
+      </div>
+      <table>
+        <thead><tr><th>Code</th><th>Name</th><th>Scanned At</th><th></th></tr></thead>
+        <tbody id="tbody-${id}"></tbody>
+      </table>
+    `;
+    const tbody = container.querySelector(`#tbody-${id}`);
+    const colRef = collection(db, `buses/${id}/attendees`);
+    onSnapshot(colRef, snap=>{
+      tbody.innerHTML = "";
+      snap.forEach(docu=>{
+        const d = docu.data();
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${docu.id}</td>
+          <td>${d.name||""}</td>
+          <td>${d.scannedAt?.toDate?.()?.toLocaleString?.() || ""}</td>
+          <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  // Accordion behavior
+  grid.addEventListener('click', async (e)=>{
+    const card = e.target.closest('.card');
+    if(!card) return;
+    const id = card.dataset.id;
+    const isActive = card.classList.contains('active');
+
+    document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
+    document.querySelectorAll('.accordion-content').forEach(sec=>{
+      sec.style.maxHeight = null;
+      sec.addEventListener('transitionend',()=>sec.remove(),{once:true});
+    });
+
+    if(!isActive){
+      card.classList.add('active');
+      const content = document.createElement('div');
+      content.className = 'accordion-content';
+      content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
+      card.insertAdjacentElement('afterend', content);
+
+      await renderBusSection(id, content);
+      requestAnimationFrame(()=>{
+        content.style.maxHeight = content.scrollHeight + "px";
+      });
+    }
+  });
+
+  // Section buttons
+  grid.addEventListener('click', async (e)=>{
+    if(e.target.matches('.del')){
+      const id = e.target.dataset.id;
+      const code = e.target.dataset.code;
+      await deleteDoc(doc(db, `buses/${id}/attendees/${code}`));
+    }
+    if(e.target.matches('.del-all')){
+      const id = e.target.dataset.id;
+      if(!confirm("Delete ALL attendees in this bus?")) return;
+      const colRef = collection(db, `buses/${id}/attendees`);
+      const snap = await getDocs(colRef);
+      const deletions = [];
+      snap.forEach(d=>deletions.push(deleteDoc(d.ref)));
+      await Promise.all(deletions);
+      await renderSummary();
+    }
+    if(e.target.matches('.gen-pdf')){
+      generatePassPDF(e.target.dataset.id);
+    }
+  });
+
+  // Download Template
+  document.getElementById('download-template').addEventListener('click', ()=>{
+    const ws = XLSX.utils.aoa_to_sheet([["Code","Name"]]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, "Attendees_Template.xlsx");
+  });
+
+  // ✅ Import attendees to selected bus
+  document.getElementById('import').addEventListener('click', async () => {
+    const file = document.getElementById('upload').files[0];
+    const selectedBus = document.getElementById('bus').value;
+    const busId = selectedBus.toLowerCase().replace(" ", "-");
+
+    if (!file) {
+      alert("Please select a file first.");
       return;
     }
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
-      authDomain: "bus-scanner-50fe9.firebaseapp.com",
-      projectId: "bus-scanner-50fe9",
-      storageBucket: "bus-scanner-50fe9.firebasestorage.app",
-      messagingSenderId: "552524740644",
-      appId: "1:552524740644:web:3cdb346ae7d9b2850d80b1"
-    };
-    const app = initializeApp(firebaseConfig); 
-    const db  = getFirestore(app);
-    enableIndexedDbPersistence(db).catch(()=>{});
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(sheet);
 
-    const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
-    const busNames = (id)=>`Bus ${id.split('-')[1]}`;
-    const grid = document.getElementById('bus-grid');
-
-    async function renderSummary(){
-      grid.innerHTML = "";
-      for(const id of buses){
-        const colRef = collection(db, `buses/${id}/attendees`);
-        const qSnap  = await getDocs(query(colRef, where("scanned", "==", true)));
-        const count  = qSnap.size;
-
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.dataset.id = id;
-        card.innerHTML = `<h3>${busNames(id)}</h3><p>Scanned: <b>${count}</b></p>`;
-        grid.appendChild(card);
+    for (const row of json) {
+      if (row.Code && row.Name) {
+        await setDoc(doc(db, `buses/${busId}/attendees/${row.Code}`), {
+          name: row.Name,
+          scanned: false
+        });
       }
     }
 
-    async function renderBusSection(id, container){
-      container.innerHTML = `
-        <div class="row" style="padding:8px 0;">
-          <button data-id="${id}" class="gen-pdf">QR Code Download (A4 · 6 per page)</button>
-          <button data-id="${id}" class="del-all">Delete All</button>
-        </div>
-        <table>
-          <thead><tr><th>Code</th><th>Name</th><th>Scanned At</th><th></th></tr></thead>
-          <tbody id="tbody-${id}"></tbody>
-        </table>
-      `;
-      const tbody = container.querySelector(`#tbody-${id}`);
-      const colRef = collection(db, `buses/${id}/attendees`);
-      onSnapshot(colRef, snap=>{
-        tbody.innerHTML = "";
-        snap.forEach(docu=>{
-          const d = docu.data();
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td>${docu.id}</td>
-            <td>${d.name||""}</td>
-            <td>${d.scannedAt?.toDate?.()?.toLocaleString?.() || ""}</td>
-            <td><button class="del" data-id="${id}" data-code="${docu.id}">Delete</button></td>
-          `;
-          tbody.appendChild(tr);
-        });
-      });
-    }
+    alert(`Attendees uploaded successfully to ${selectedBus}`);
+    await renderSummary();
+  });
 
-    // Accordion behavior
-    grid.addEventListener('click', async (e)=>{
-      const card = e.target.closest('.card');
-      if(!card) return;
-      const id = card.dataset.id;
-      const isActive = card.classList.contains('active');
-
-      document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
-      document.querySelectorAll('.accordion-content').forEach(sec=>{
-        sec.style.maxHeight = null;
-        sec.addEventListener('transitionend',()=>sec.remove(),{once:true});
-      });
-
-      if(!isActive){
-        card.classList.add('active');
-        const content = document.createElement('div');
-        content.className = 'accordion-content';
-        content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
-        card.insertAdjacentElement('afterend', content);
-
-        await renderBusSection(id, content);
-        requestAnimationFrame(()=>{
-          content.style.maxHeight = content.scrollHeight + "px";
-        });
-      }
-    });
-
-    // Section buttons
-    grid.addEventListener('click', async (e)=>{
-      if(e.target.matches('.del')){
-        const id = e.target.dataset.id;
-        const code = e.target.dataset.code;
-        await deleteDoc(doc(db, `buses/${id}/attendees/${code}`));
-      }
-      if(e.target.matches('.del-all')){
-        const id = e.target.dataset.id;
-        if(!confirm("Delete ALL attendees in this bus?")) return;
-        const colRef = collection(db, `buses/${id}/attendees`);
-        const snap = await getDocs(colRef);
-        const deletions = [];
-        snap.forEach(d=>deletions.push(deleteDoc(d.ref)));
-        await Promise.all(deletions);
-        await renderSummary();
-      }
-      if(e.target.matches('.gen-pdf')){
-        generatePassPDF(e.target.dataset.id);
-      }
-    });
-
-    // Download Template
-    document.getElementById('download-template').addEventListener('click', ()=>{
-      const ws = XLSX.utils.aoa_to_sheet([["Code","Name"]]);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Template");
-      XLSX.writeFile(wb, "Attendees_Template.xlsx");
-    });
-
-    // Import attendees
-    document.getElementById('import').addEventListener('click', async ()=>{
-      const file = document.getElementById('upload').files[0];
-      const busName = document.getElementById('bus').value.toLowerCase().replace(" ","-");
-      if(!file) return alert("Please select a file.");
-      const data = await file.arrayBuffer();
-      const wb = XLSX.read(data);
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet);
-      for(const row of json){
-        if(row.Code && row.Name){
-          await setDoc(doc(db, `buses/${busName}/attendees/${row.Code}`), {
-            name: row.Name,
-            scanned: false
-          });
-        }
-      }
-      alert("Attendees uploaded successfully!");
-      await renderSummary();
-    });
-
-    function makeQrPng(text){
-      return new Promise((resolve)=>{
-        const typeNumber = 8;
-        const qr = qrcode(typeNumber, 'H');
-        qr.addData(String(text));
-        qr.make();
-        const size = 256;
-        const cell = Math.floor(size / qr.getModuleCount());
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle="#fff"; ctx.fillRect(0,0,size,size);
-        ctx.fillStyle="#000";
-        const count = qr.getModuleCount();
-        for(let r=0;r<count;r++){
-          for(let c=0;c<count;c++){
-            if(qr.isDark(r,c)){
-              ctx.fillRect(c*cell, r*cell, cell, cell);
-            }
+  // QR generator
+  function makeQrPng(text){
+    return new Promise((resolve)=>{
+      const typeNumber = 8;
+      const qr = qrcode(typeNumber, 'H');
+      qr.addData(String(text));
+      qr.make();
+      const size = 256;
+      const cell = Math.floor(size / qr.getModuleCount());
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle="#fff"; ctx.fillRect(0,0,size,size);
+      ctx.fillStyle="#000";
+      const count = qr.getModuleCount();
+      for(let r=0;r<count;r++){
+        for(let c=0;c<count;c++){
+          if(qr.isDark(r,c)){
+            ctx.fillRect(c*cell, r*cell, cell, cell);
           }
         }
-        resolve(canvas.toDataURL("image/png"));
-      });
-    }
-
-    async function generatePassPDF(busId){
-      const { jsPDF } = window.jspdf;
-      const docPDF = new jsPDF({ unit: "mm", format: "a4" });
-      const colRef = collection(db, `buses/${busId}/attendees`);
-      const snap = await getDocs(colRef);
-      const data = [];
-      snap.forEach(d=>data.push({ code: d.id, ...d.data() }));
-
-      const cardW = 50, cardH = 100, qr = 45, marginX = 15, marginY = 10, gapX = 20, gapY = 10;
-      let i = 0;
-      for(const row of data){
-        if(i>0 && i % 6 === 0) docPDF.addPage();
-        const slot = i % 6;
-        const col = slot % 2;
-        const r   = Math.floor(slot / 2);
-        const x = marginX + col*(cardW + gapX);
-        const y = marginY + r*(cardH + gapY);
-        docPDF.rect(x, y, cardW, cardH);
-        docPDF.setFont("times","bold"); docPDF.setFontSize(10);
-        docPDF.text("TSUNETETSU CEBU INC.", x+2, y+6);
-        const qrPng = await makeQrPng(row.code);
-        docPDF.addImage(qrPng, "PNG", x + (cardW-qr)/2, y+10, qr, qr);
-        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(10);
-        docPDF.text((row.name||"").toUpperCase(), x+2, y+10+qr+8);
-        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
-        docPDF.text("EVENT", x+2, y+10+qr+18);
-        docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
-        docPDF.text("TCI Family Day 2025", x+2, y+10+qr+24);
-        docPDF.text("September 7, 2025 | 8:00 AM – 4:00 PM", x+2, y+10+qr+30);
-        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
-        docPDF.text("VENUE", x+2, y+10+qr+40);
-        docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
-        docPDF.text("Hidden Valley Mountain and Wavepool Resort", x+2, y+10+qr+46, { maxWidth: cardW-4 });
-        docPDF.text("Pinamungahan, Cebu", x+2, y+10+qr+52);
-        const busLabel = busNames(busId);
-        docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
-        docPDF.text("EVENT PASS", x+2, y+cardH-10);
-        docPDF.text(`B (${busLabel})`, x+cardW-2, y+cardH-10, { align: "right" });
-        i++;
       }
-      docPDF.save(`${busNames(busId).replace(" ","_")}_Event_Passes.pdf`);
-    }
+      resolve(canvas.toDataURL("image/png"));
+    });
+  }
 
-    renderSummary();
+  // PDF generator
+  async function generatePassPDF(busId){
+    const { jsPDF } = window.jspdf;
+    const docPDF = new jsPDF({ unit: "mm", format: "a4" });
+    const colRef = collection(db, `buses/${busId}/attendees`);
+    const snap = await getDocs(colRef);
+    const data = [];
+    snap.forEach(d=>data.push({ code: d.id, ...d.data() }));
+
+    const cardW = 50, cardH = 100, qr = 45, marginX = 15, marginY = 10, gapX = 20, gapY = 10;
+    let i = 0;
+    for(const row of data){
+      if(i>0 && i % 6 === 0) docPDF.addPage();
+      const slot = i % 6;
+      const col = slot % 2;
+      const r   = Math.floor(slot / 2);
+      const x = marginX + col*(cardW + gapX);
+      const y = marginY + r*(cardH + gapY);
+      docPDF.rect(x, y, cardW, cardH);
+      docPDF.setFont("times","bold"); docPDF.setFontSize(10);
+      docPDF.text("TSUNETETSU CEBU INC.", x+2, y+6);
+      const qrPng = await makeQrPng(row.code);
+      docPDF.addImage(qrPng, "PNG", x + (cardW-qr)/2, y+10, qr, qr);
+      docPDF.setFont("helvetica","bold"); docPDF.setFontSize(10);
+      docPDF.text((row.name||"").toUpperCase(), x+2, y+10+qr+8);
+      docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+      docPDF.text("EVENT", x+2, y+10+qr+18);
+      docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
+      docPDF.text("TCI Family Day 2025", x+2, y+10+qr+24);
+      docPDF.text("September 7, 2025 | 8:00 AM – 4:00 PM", x+2, y+10+qr+30);
+      docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+      docPDF.text("VENUE", x+2, y+10+qr+40);
+      docPDF.setFont("helvetica","normal"); docPDF.setFontSize(12);
+      docPDF.text("Hidden Valley Mountain and Wavepool Resort", x+2, y+10+qr+46, { maxWidth: cardW-4 });
+      docPDF.text("Pinamungahan, Cebu", x+2, y+10+qr+52);
+      const busLabel = busNames(busId);
+      docPDF.setFont("helvetica","bold"); docPDF.setFontSize(12);
+      docPDF.text("EVENT PASS", x+2, y+cardH-10);
+      docPDF.text(`B (${busLabel})`, x+cardW-2, y+cardH-10, { align: "right" });
+      i++;
+    }
+    docPDF.save(`${busNames(busId).replace(" ","_")}_Event_Passes.pdf`);
+  }
+
+  renderSummary();
   </script>
 </body>
 </html>
