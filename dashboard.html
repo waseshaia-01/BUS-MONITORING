@@ -64,7 +64,9 @@
       messagingSenderId: "552524740644",
       appId: "1:552524740644:web:3cdb346ae7d9b2850d80b1"
     };
+    const app = initializeApp(firebaseConfig); 
     const db  = getFirestore(app);
+    
     enableIndexedDbPersistence(db).catch(()=>{});
 
     const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
