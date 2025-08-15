@@ -171,6 +171,35 @@
       }
     });
 
+    // Download Template
+    document.getElementById('download-template').addEventListener('click', ()=>{
+      const ws = XLSX.utils.aoa_to_sheet([["Code","Name"]]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Template");
+      XLSX.writeFile(wb, "Attendees_Template.xlsx");
+    });
+
+    // Import attendees
+    document.getElementById('import').addEventListener('click', async ()=>{
+      const file = document.getElementById('upload').files[0];
+      const busName = document.getElementById('bus').value.toLowerCase().replace(" ","-");
+      if(!file) return alert("Please select a file.");
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet);
+      for(const row of json){
+        if(row.Code && row.Name){
+          await setDoc(doc(db, `buses/${busName}/attendees/${row.Code}`), {
+            name: row.Name,
+            scanned: false
+          });
+        }
+      }
+      alert("Attendees uploaded successfully!");
+      await renderSummary();
+    });
+
     function makeQrPng(text){
       return new Promise((resolve)=>{
         const typeNumber = 8;
