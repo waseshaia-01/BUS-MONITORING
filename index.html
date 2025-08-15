@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,8 +8,6 @@
   <style>
     body{font-family:system-ui,Arial,sans-serif;margin:16px}
     header,footer{display:flex;justify-content:space-between;align-items:center;gap:12px}
-    .frame{width:2in;height:2in;border:3px dashed #333;border-radius:12px;margin:12px auto}
-    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     select,button{padding:8px 12px;font-size:16px}
     #status{margin-top:8px;min-height:24px}
     #reader{max-width:520px;margin:12px auto}
@@ -28,11 +27,8 @@
       <option>Bus 5</option><option>Bus 6</option><option>Bus 7</option><option>Bus 8</option>
       <option>Bus 9</option><option>Bus 10</option><option>Bus 11</option><option>Bus 12</option>
     </select>
-    <button id="start">Start Camera</button>
-    <button id="stop">Stop</button>
   </div>
 
-  <div class="frame" title="2×2 inches QR frame"></div>
   <div id="reader"></div>
   <div id="status"></div>
 
@@ -68,40 +64,31 @@
     const statusEl = document.getElementById('status');
     const busEl    = document.getElementById('bus');
     const startBtn = document.getElementById('start');
-    const stopBtn  = document.getElementById('stop');
-    const readerId = "reader";
+        const readerId = "reader";
     let html5QrCode = null;
+window.onload = async () => {
+  try {
+    if(!html5QrCode){
+      html5QrCode = new Html5Qrcode(readerId);
+    }
+    await html5QrCode.start(
+      { facingMode: { exact: "environment" } },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onScanSuccess
+    );
+    show("Scanner started. Point a QR to the camera.");
+  } catch(e){
+    show("Camera error: " + e);
+  }
+};
+
 
     function show(msg){ statusEl.textContent = msg; }
 
     // 4) Start scanner
-    startBtn.addEventListener('click', async () => {
-      try{
-        if(!html5QrCode){
-          html5QrCode = new Html5Qrcode(readerId);
-        }
-        const cameras = await Html5Qrcode.getCameras();
-        const camId = cameras?.[0]?.id;
-        if(!camId){ show("No camera found"); return; }
-
-        await html5QrCode.start(
-          { deviceId: { exact: camId } },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          onScanSuccess,
-          (err) => {}
-        );
-        show("Scanner started. Point a QR to the frame.");
-      }catch(e){ show("Camera error: " + e); }
-    });
-
+    
     // 5) Stop scanner
-    stopBtn.addEventListener('click', async () => {
-      try{
-        await html5QrCode?.stop(); await html5QrCode?.clear();
-        show("Scanner stopped.");
-      }catch(e){ show("Stop error: " + e); }
-    });
-
+    
     // 6) When QR is read
     async function onScanSuccess(decodedText){
       const busName = busEl.value;      // e.g., "Bus 1"
