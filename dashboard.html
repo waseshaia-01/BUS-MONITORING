@@ -78,10 +78,20 @@
     const busSelect = document.getElementById('bus');
     const dlTemplateBtn = document.getElementById('download-template');
 
-    // 1) Download template (hosted file optional)
-    dlTemplateBtn.addEventListener('click', ()=> {
-      window.location.href = "attendees_template.xlsx"; // If you upload the template to the repo root
-    });
+    // 1) Download template (generated in browser)
+  dlTemplateBtn.addEventListener('click', () => {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ["Code", "Name"],
+      ["TCI001", "Alice Reyes"],
+      ["TCI002", "Ben Cruz"],
+      ["TCI003", "Cara Dela Cruz"]
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+
+    XLSX.writeFile(wb, "attendees_template.xlsx");
+  });
 
     // 2) Live summary counts
     async function renderSummary(){
