@@ -62,7 +62,7 @@
     query, where, enableIndexedDbPersistence
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   
-  // 1️⃣ Firebase init
+  // Firebase init
   const firebaseConfig = {
     apiKey: "AIzaSyAjypFIncOMzfG_lgAELrDTnrJ_2-ZWuFA",
     authDomain: "bus-scanner-50fe9.firebaseapp.com",
@@ -79,7 +79,7 @@
   
   // Variables
   const buses = Array.from({length:12}, (_,i)=>`bus-${i+1}`);
-  const busNames = (id)=>`Bus ${id.split('-')[1]}`;
+  const busNames = id => `Bus ${id.split('-')[1]}`;
   const grid = document.getElementById('bus-grid');
 
   // Render summary
@@ -92,7 +92,7 @@
 
       const card = document.createElement('div');
       card.className = 'card';
-      card.dataset.id = id;
+      card.dataset.id = id; // final format stored
       card.innerHTML = `<h3>${busNames(id)}</h3><p>Scanned: <b>${count}</b></p>`;
       grid.appendChild(card);
     }
@@ -132,7 +132,7 @@
   grid.addEventListener('click', async (e)=>{
     const card = e.target.closest('.card');
     if(!card) return;
-    const id = card.dataset.id;
+    const id = card.dataset.id; // already in correct format
     const isActive = card.classList.contains('active');
 
     document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
@@ -142,14 +142,14 @@
     });
 
     if(!isActive){
-      expandedBusId = id; // remember expanded bus
+      expandedBusId = id;
       card.classList.add('active');
       const content = document.createElement('div');
       content.className = 'accordion-content';
       content.innerHTML = `<p style="padding:8px;color:#777">Loading...</p>`;
       card.insertAdjacentElement('afterend', content);
 
-      await renderBusSection(id.trim().toLowerCase().replace(/\s+/g, "-"), content);
+      await renderBusSection(id, content);
       requestAnimationFrame(()=>{
         content.style.maxHeight = content.scrollHeight + "px";
       });
@@ -188,11 +188,11 @@
     XLSX.writeFile(wb, "Attendees_Template.xlsx");
   });
 
-  // ✅ Import attendees to selected bus
+  // Upload attendees
   document.getElementById('import').addEventListener('click', async () => {
     const file = document.getElementById('upload').files[0];
     const selectedBus = document.getElementById('bus').value;
-    const busId = selectedBus.trim().toLowerCase().replace(/\s+/g, "-");
+    const busId = selectedBus.trim().toLowerCase().replace(/\s+/g, "-"); // one-time conversion
 
     if (!file) {
       alert("Please select a file first.");
@@ -216,7 +216,7 @@
     alert(`Attendees uploaded successfully to ${selectedBus}`);
     await renderSummary();
 
-    // 🔹 If the bus is currently expanded, refresh its table
+    // Refresh table if this bus is open
     if (expandedBusId === busId) {
       const accordion = document.querySelector(`#tbody-${busId}`)?.closest(".accordion-content");
       if (accordion) {
